@@ -3,6 +3,15 @@ name = "ft6x06-rs"
 version = "0.1.0"
 edition = "2021"
 
+description = "A pure Rust driver for the FT6x06 capacitive touch screen controller."
+authors = ["DogeDark"]
+license-file = "LICENSE"
+repository = "https://github.com/DogeDark/ft6x06-rs"
+readme = "README.md"
+keywords = ["embedded-hal"]
+categories = ["embedded", "no-std"]
+
+
 [dependencies]
 defmt = "0.3.8"
 embedded-hal = "1.0.0"
