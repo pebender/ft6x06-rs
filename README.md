@@ -4,7 +4,7 @@
 **To-Do:**
 - [x] `embedded-hal`-based driver.
 - [ ] `emedded-hal-async`-based driver.
-- [ ] Ability to configure device.
+- [ ] Advanced configuration options (thresholds & gesture offsets)
 - [ ] Add testing.
 
 
