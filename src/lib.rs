@@ -1,3 +1,35 @@
+//! `ft6x06-rs` is a pure-Rust `embedded-hal`-based driver for the I2C-based `ft6x06` capacitive touch 
+//! screen controller. This crate aims to provide high-level functionality for most use-cases.
+//! 
+//! All interactions are through the [`FT6x06`] struct.
+//! 
+//! **Example**
+//! ```rust
+//! // Initialization
+//! let mut dev = FT6x06::new(i2c);
+//!
+//! // Configure the device.
+//! dev.set_interrupt_mode(InterruptMode::Trigger).unwrap();
+//! dev.set_control_mode(ControlMode::MonitorIdle).unwrap();
+//! dev.set_active_idle_timeout(10).unwrap();
+//! dev.set_report_rates(60, 25).unwrap();
+//!
+//! // Read the device configuration.
+//! let interrupt_mode = dev.get_interrupt_mode().unwrap();
+//! let control_mode = dev.get_control_mode().unwrap();
+//! let active_idle_timeout = dev.get_active_idle_timeout().unwrap();
+//! let (active_rate, monitor_rate) = dev.get_report_rates().unwrap();
+//!
+//! info!("Irq Mode: {}", interrupt_mode);
+//! info!("Ctrl Mode: {}", control_mode);
+//! info!("Active Idle Timeout: {}", active_idle_timeout);
+//! info!("Active Rate: {}", active_rate);
+//! info!("Monitor Rate: {}", monitor_rate);
+//!
+//! // Get the latest touch data. Usually after receiving an interrupt from the device.
+//! let touch_event = dev.get_touch_event().unwrap();
+//! ```
+
 #![no_std]
 
 use embedded_hal::i2c::{I2c, SevenBitAddress};
