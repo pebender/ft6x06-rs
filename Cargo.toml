@@ -1,6 +1,6 @@
 [package]
 name = "ft6x06-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 description = "A pure Rust driver for the FT6x06 capacitive touch screen controller."

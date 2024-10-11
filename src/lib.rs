@@ -5,10 +5,10 @@ use embedded_hal::i2c::{I2c, SevenBitAddress};
 const I2C_ADDR: u8 = 0x38;
 
 const GEST_ID_ADDR: u8 = 0x01;
-const TD_STATUS_ADDR: u8 = 0x02;
 const CTRL_ADDR: u8 = 0x86;
 const TIME_ENTER_MONITOR_ADDR: u8 = 0x87;
 const PERIOD_ACTIVE_ADDR: u8 = 0x88;
+const G_MODE_ADDR: u8 = 0xA4;
 
 /// A recorded touch event.
 ///
@@ -109,7 +109,7 @@ impl From<u8> for GestureType {
 pub enum ControlMode {
     /// Force active will force the device to continously scan at it's full rate.
     ForceActive = 0,
-    /// In monitor idle mode, the device will automatically switch to `monitor` mode after a timeout period of no touch events in active mode. This is the default mode.
+    /// In monitor idle mode, the device will automatically switch to `monitor` mode after a timeout period of no touch events in active mode.
     ///
     /// The timeout period can be set with [`FT6x06::set_active_idle_timeout`].
     MonitorIdle = 1,
@@ -126,7 +126,32 @@ impl TryFrom<u8> for ControlMode {
     }
 }
 
+/// The interrupt mode.
+///
+/// This corresponds to the `G_MODE` register.
+#[derive(Debug, defmt::Format, PartialEq, Clone, Copy)]
+pub enum InterruptMode {
+    /// Interrupt poll mode will pull the interrupt pin low until every touch event ends.
+    Poll = 0,
+    /// Interrupt trigger mode will cycle the interrupt pin for every touch event.
+    Trigger = 1,
+}
+
+impl TryFrom<u8> for InterruptMode {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Poll),
+            1 => Ok(Self::Trigger),
+            _ => Err(()),
+        }
+    }
+}
+
 /// An FT6x06 device.
+///
+/// This struct contains the full interface to the FT6x06 device.
+/// Certain features depend upon the specific FT6x06 chip and firmware version and some data or functionality may be unavailable.
 pub struct FT6x06<I2C> {
     i2c: I2C,
 }
@@ -138,11 +163,6 @@ impl<I2C: I2c<SevenBitAddress>> FT6x06<I2C> {
 
     /// Retrieve the latest touch event with all available data and touch points.
     pub fn get_touch_event(&mut self) -> Result<Option<TouchEvent>, DriverError<I2C::Error>> {
-        // Check if data is available.
-        if !self.is_data_ready()? {
-            return Ok(None);
-        }
-
         // Read from 0x01 to 0x0E for GEST_ID, TD_STATUS, and PX_X registers.
         let mut buf = [0u8; 14];
         self.i2c.write_read(I2C_ADDR, &[GEST_ID_ADDR], &mut buf)?;
@@ -176,24 +196,7 @@ impl<I2C: I2c<SevenBitAddress>> FT6x06<I2C> {
         }))
     }
 
-    /// Checks if there is touch data ready.
-    pub fn is_data_ready(&mut self) -> Result<bool, DriverError<I2C::Error>> {
-        let mut buf = [0u8; 1];
-        self.i2c.write_read(I2C_ADDR, &[TD_STATUS_ADDR], &mut buf)?;
-
-        // We need only the last 4 bits.
-        let num_touch_points = buf[0] & 0x0F;
-
-        // Less than 1 = no data; Greater than 2 = invalid.
-        if !is_num_touch_points_valid(num_touch_points) {
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
     /// Get the current mode of the device.
-    ///
     /// This corresponds to the `CTRL` register.
     pub fn get_control_mode(&mut self) -> Result<ControlMode, DriverError<I2C::Error>> {
         let mut buf = [0u8; 1];
@@ -204,7 +207,6 @@ impl<I2C: I2c<SevenBitAddress>> FT6x06<I2C> {
     }
 
     /// Set the device mode.
-    ///
     /// The default control mode is [`ControlMode::MonitorIdle`].
     /// This corresponds to the `CTRL` register.
     pub fn set_control_mode(&mut self, mode: ControlMode) -> Result<(), DriverError<I2C::Error>> {
@@ -212,7 +214,6 @@ impl<I2C: I2c<SevenBitAddress>> FT6x06<I2C> {
     }
 
     /// Get the idle timeout for the [`ControlMode::MonitorIdle`] mode.
-    ///
     /// This corresponds to the `TIMEENTERMONITOR` register.
     pub fn get_active_idle_timeout(&mut self) -> Result<u8, DriverError<I2C::Error>> {
         let mut buf = [0u8; 1];
@@ -233,9 +234,8 @@ impl<I2C: I2c<SevenBitAddress>> FT6x06<I2C> {
     }
 
     /// Get the configured report rates for each mode.
-    ///
     /// This corresponds to the `PERIODACTIVE` and `PERIODMONITOR` registers.
-    pub fn get_report_rates(&mut self) -> Result<(u8, u8), I2C::Error> {
+    pub fn get_report_rates(&mut self) -> Result<(u8, u8), DriverError<I2C::Error>> {
         let mut buf = [0u8; 2];
         self.i2c
             .write_read(I2C_ADDR, &[PERIOD_ACTIVE_ADDR], &mut buf)?;
@@ -247,17 +247,57 @@ impl<I2C: I2c<SevenBitAddress>> FT6x06<I2C> {
     /// The default report rates are:
     /// - 60hz for active mode.
     /// - 25hz for monitor mode.
-    /// 
+    ///
     /// The report rate is also called the scan rate.
     /// This corresponds to the `PERIODACTIVE` and `PERIODMONITOR` registers.
     pub fn set_report_rates(
         &mut self,
         active_rate: u8,
         monitor_rate: u8,
-    ) -> Result<(), I2C::Error> {
+    ) -> Result<(), DriverError<I2C::Error>> {
         Ok(self
             .i2c
             .write(I2C_ADDR, &[PERIOD_ACTIVE_ADDR, active_rate, monitor_rate])?)
+    }
+
+    /// Get the current interrupt mode.
+    /// This corresponds to the `G_MODE` register.
+    pub fn get_interrupt_mode(&mut self) -> Result<InterruptMode, DriverError<I2C::Error>> {
+        let mut buf = [0u8; 1];
+        self.i2c.write_read(I2C_ADDR, &[G_MODE_ADDR], &mut buf)?;
+
+        let value = InterruptMode::try_from(buf[0]).map_err(|()| DriverError::InvalidResponse)?;
+        Ok(value)
+    }
+
+    /// Set the current interrupt mode.
+    /// This corresponds to the `G_MODE` register.
+    pub fn set_interrupt_mode(
+        &mut self,
+        mode: InterruptMode,
+    ) -> Result<(), DriverError<I2C::Error>> {
+        Ok(self.i2c.write(I2C_ADDR, &[G_MODE_ADDR, mode as u8])?)
+    }
+
+    /// Read a byte from any register.
+    /// Provided as a catch-all for missing api.
+    pub fn read_register(&mut self, reg: u8) -> Result<u8, DriverError<I2C::Error>> {
+        let mut buf = [0u8; 1];
+        self.i2c.write_read(I2C_ADDR, &[reg], &mut buf)?;
+        Ok(buf[0])
+    }
+
+    /// Write a byte to any register.
+    /// Provided as a catch-all for missing api.
+    ///
+    /// # Safety
+    /// This function allows you to write any value to any register and as such is marked unsafe.
+    pub unsafe fn write_register(
+        &mut self,
+        reg: u8,
+        val: u8,
+    ) -> Result<(), DriverError<I2C::Error>> {
+        Ok(self.i2c.write(I2C_ADDR, &[reg, val])?)
     }
 
     /// Safely clean up the device, returning any owned peripherals.
