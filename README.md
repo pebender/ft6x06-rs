@@ -8,6 +8,7 @@
     </a>
 </div>
 <br/>
+
 `ft6x06-rs` is a pure-Rust `embedded-hal`-based driver for the I2C-based `ft6x06` capacitive touch screen controller. This crate aims to provide high-level functionality for most use-cases.
 
 <hr/>
