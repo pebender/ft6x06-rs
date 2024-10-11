@@ -16,7 +16,7 @@
 
 **To-Do:**
 - [x] `embedded-hal`-based driver.
-- [ ] `emedded-hal-async`-based driver.
+- [ ] `embedded-hal-async`-based driver.
 - [ ] Figure out missing information for specific functionality.
 - [ ] Add testing.
 
