@@ -16,27 +16,31 @@
 
 **To-Do:**
 - [x] `embedded-hal`-based driver.
-- [ ] `embedded-hal-async`-based driver.
+- [x] `embedded-hal-async`-based driver.
 - [ ] Figure out missing information for specific functionality.
-- [ ] Add testing.
+- [ ] Add tests.
 
 
-### Example
+**Features**
+- `sync-driver` - default, sync driver using `embedded-hal`.
+- `async-driver` - async version of the driver using `embedded-hal-async`.
+
+**Example**
 ```rs
 // Initialization
 let mut dev = FT6x06::new(i2c);
 
 // Configure the device.
-dev.set_interrupt_mode(InterruptMode::Trigger).unwrap();
-dev.set_control_mode(ControlMode::MonitorIdle).unwrap();
-dev.set_active_idle_timeout(10).unwrap();
-dev.set_report_rates(60, 25).unwrap();
+dev.set_interrupt_mode(InterruptMode::Trigger)?;
+dev.set_control_mode(ControlMode::MonitorIdle)?;
+dev.set_active_idle_timeout(10)?;
+dev.set_report_rates(60, 25)?;
 
 // Read the device configuration.
-let interrupt_mode = dev.get_interrupt_mode().unwrap();
-let control_mode = dev.get_control_mode().unwrap();
-let active_idle_timeout = dev.get_active_idle_timeout().unwrap();
-let (active_rate, monitor_rate) = dev.get_report_rates().unwrap();
+let interrupt_mode = dev.get_interrupt_mode()?;
+let control_mode = dev.get_control_mode()?;
+let active_idle_timeout = dev.get_active_idle_timeout()?;
+let (active_rate, monitor_rate) = dev.get_report_rates()?;
 
 info!("Irq Mode: {}", interrupt_mode);
 info!("Ctrl Mode: {}", control_mode);
@@ -45,5 +49,9 @@ info!("Active Rate: {}", active_rate);
 info!("Monitor Rate: {}", monitor_rate);
 
 // Get the latest touch data. Usually after receiving an interrupt from the device.
-let touch_event = dev.get_touch_event().unwrap();
+let touch_event = dev.get_touch_event()?;
+
+// In the async driver, you can wait for the next touch event:
+let mut dev_async = FT6x06Async::new(i2c).with_irq_pin(my_periph.GPIO_XX);
+let touch_event = dev_async.wait_for_touch().await?;
 ```

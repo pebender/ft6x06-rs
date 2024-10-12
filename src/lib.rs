@@ -1,24 +1,30 @@
-//! `ft6x06-rs` is a pure-Rust `embedded-hal`-based driver for the I2C-based `ft6x06` capacitive touch 
+//! `ft6x06-rs` is a pure-Rust `embedded-hal`-based driver for the I2C-based `ft6x06` capacitive touch
 //! screen controller. This crate aims to provide high-level functionality for most use-cases.
-//! 
-//! All interactions are through the [`FT6x06`] struct.
-//! 
+//!
+//! All interactions are through the `FT6x06` or `FT6x06Async` struct depending on the enabled features.
+//!
+//! **Features**
+//! - `sync-driver` - default, sync driver using `embedded-hal`.
+//! - `async-driver` - async version of the driver using `embedded-hal-async`.
+//!
+//! The sync and async drivers are the same except async includes `wait_for_touch` functionality.
+//!
 //! **Example**
 //! ```rust
 //! // Initialization
 //! let mut dev = FT6x06::new(i2c);
 //!
 //! // Configure the device.
-//! dev.set_interrupt_mode(InterruptMode::Trigger).unwrap();
-//! dev.set_control_mode(ControlMode::MonitorIdle).unwrap();
-//! dev.set_active_idle_timeout(10).unwrap();
-//! dev.set_report_rates(60, 25).unwrap();
+//! dev.set_interrupt_mode(InterruptMode::Trigger)?;
+//! dev.set_control_mode(ControlMode::MonitorIdle)?;
+//! dev.set_active_idle_timeout(10)?;
+//! dev.set_report_rates(60, 25)?;
 //!
 //! // Read the device configuration.
-//! let interrupt_mode = dev.get_interrupt_mode().unwrap();
-//! let control_mode = dev.get_control_mode().unwrap();
-//! let active_idle_timeout = dev.get_active_idle_timeout().unwrap();
-//! let (active_rate, monitor_rate) = dev.get_report_rates().unwrap();
+//! let interrupt_mode = dev.get_interrupt_mode()?;
+//! let control_mode = dev.get_control_mode()?;
+//! let active_idle_timeout = dev.get_active_idle_timeout()?;
+//! let (active_rate, monitor_rate) = dev.get_report_rates()?;
 //!
 //! info!("Irq Mode: {}", interrupt_mode);
 //! info!("Ctrl Mode: {}", control_mode);
@@ -27,20 +33,28 @@
 //! info!("Monitor Rate: {}", monitor_rate);
 //!
 //! // Get the latest touch data. Usually after receiving an interrupt from the device.
-//! let touch_event = dev.get_touch_event().unwrap();
+//! let touch_event = dev.get_touch_event()?;
+//!
+//! // In the async driver, you can wait for the next touch event:
+//! let mut dev_async = FT6x06Async::new(i2c).with_irq_pin(my_periph.GPIO_XX);
+//! let touch_event = dev_async.wait_for_touch().await?;
 //! ```
 
 #![no_std]
 
-use embedded_hal::i2c::{I2c, SevenBitAddress};
+mod common;
 
-const I2C_ADDR: u8 = 0x38;
+// Sync imports
+#[cfg(feature = "sync-driver")]
+mod sync;
+#[cfg(feature = "sync-driver")]
+pub use sync::FT6x06;
 
-const GEST_ID_ADDR: u8 = 0x01;
-const CTRL_ADDR: u8 = 0x86;
-const TIME_ENTER_MONITOR_ADDR: u8 = 0x87;
-const PERIOD_ACTIVE_ADDR: u8 = 0x88;
-const G_MODE_ADDR: u8 = 0xA4;
+// Async imports
+#[cfg(feature = "async-driver")]
+mod asynch;
+#[cfg(feature = "async-driver")]
+pub use asynch::FT6x06Async;
 
 /// A recorded touch event.
 ///
@@ -180,164 +194,6 @@ impl TryFrom<u8> for InterruptMode {
     }
 }
 
-/// An FT6x06 device.
-///
-/// This struct contains the full interface to the FT6x06 device.
-/// Certain features depend upon the specific FT6x06 chip and firmware version and some data or functionality may be unavailable.
-pub struct FT6x06<I2C> {
-    i2c: I2C,
-}
-
-impl<I2C: I2c<SevenBitAddress>> FT6x06<I2C> {
-    pub fn new(i2c: I2C) -> Self {
-        Self { i2c }
-    }
-
-    /// Retrieve the latest touch event with all available data and touch points.
-    pub fn get_touch_event(&mut self) -> Result<Option<TouchEvent>, DriverError<I2C::Error>> {
-        // Read from 0x01 to 0x0E for GEST_ID, TD_STATUS, and PX_X registers.
-        let mut buf = [0u8; 14];
-        self.i2c.write_read(I2C_ADDR, &[GEST_ID_ADDR], &mut buf)?;
-
-        // Get the number of touch points.
-        // Less than 1 = no data; Greater than 2 = invalid.
-        let num_touch_points = number_touch_points_from_register(buf[1]);
-        if !is_num_touch_points_valid(num_touch_points) {
-            return Ok(None);
-        }
-
-        let gesture = GestureType::from(buf[0]);
-
-        // Get first touch point
-        let primary_point =
-            touch_point_from_registers(buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
-
-        // Get second touch point
-        let mut secondary_point = None;
-        if num_touch_points == 2 {
-            let touch_point =
-                touch_point_from_registers(buf[8], buf[9], buf[10], buf[11], buf[12], buf[13]);
-
-            secondary_point = Some(touch_point);
-        }
-
-        Ok(Some(TouchEvent {
-            primary_point,
-            secondary_point,
-            gesture,
-        }))
-    }
-
-    /// Get the current mode of the device.
-    /// This corresponds to the `CTRL` register.
-    pub fn get_control_mode(&mut self) -> Result<ControlMode, DriverError<I2C::Error>> {
-        let mut buf = [0u8; 1];
-        self.i2c.write_read(I2C_ADDR, &[CTRL_ADDR], &mut buf)?;
-
-        let value = ControlMode::try_from(buf[0]).map_err(|()| DriverError::InvalidResponse)?;
-        Ok(value)
-    }
-
-    /// Set the device mode.
-    /// The default control mode is [`ControlMode::MonitorIdle`].
-    /// This corresponds to the `CTRL` register.
-    pub fn set_control_mode(&mut self, mode: ControlMode) -> Result<(), DriverError<I2C::Error>> {
-        Ok(self.i2c.write(I2C_ADDR, &[CTRL_ADDR, mode as u8])?)
-    }
-
-    /// Get the idle timeout for the [`ControlMode::MonitorIdle`] mode.
-    /// This corresponds to the `TIMEENTERMONITOR` register.
-    pub fn get_active_idle_timeout(&mut self) -> Result<u8, DriverError<I2C::Error>> {
-        let mut buf = [0u8; 1];
-        self.i2c
-            .write_read(I2C_ADDR, &[TIME_ENTER_MONITOR_ADDR], &mut buf)?;
-
-        Ok(buf[0])
-    }
-
-    /// Set the idle timeout for the [`ControlMode::MonitorIdle`] mode.
-    ///
-    /// The default value is 10. The datasheet does not specify what type this value is (maybe seconds?).
-    /// This corresponds to the `TIMEENTERMONITOR` register.
-    pub fn set_active_idle_timeout(&mut self, timeout: u8) -> Result<(), DriverError<I2C::Error>> {
-        Ok(self
-            .i2c
-            .write(I2C_ADDR, &[TIME_ENTER_MONITOR_ADDR, timeout])?)
-    }
-
-    /// Get the configured report rates for each mode.
-    /// This corresponds to the `PERIODACTIVE` and `PERIODMONITOR` registers.
-    pub fn get_report_rates(&mut self) -> Result<(u8, u8), DriverError<I2C::Error>> {
-        let mut buf = [0u8; 2];
-        self.i2c
-            .write_read(I2C_ADDR, &[PERIOD_ACTIVE_ADDR], &mut buf)?;
-        Ok((buf[0], buf[1]))
-    }
-
-    /// Set the configured report rates for each mode.
-    ///
-    /// The default report rates are:
-    /// - 60hz for active mode.
-    /// - 25hz for monitor mode.
-    ///
-    /// The report rate is also called the scan rate.
-    /// This corresponds to the `PERIODACTIVE` and `PERIODMONITOR` registers.
-    pub fn set_report_rates(
-        &mut self,
-        active_rate: u8,
-        monitor_rate: u8,
-    ) -> Result<(), DriverError<I2C::Error>> {
-        Ok(self
-            .i2c
-            .write(I2C_ADDR, &[PERIOD_ACTIVE_ADDR, active_rate, monitor_rate])?)
-    }
-
-    /// Get the current interrupt mode.
-    /// This corresponds to the `G_MODE` register.
-    pub fn get_interrupt_mode(&mut self) -> Result<InterruptMode, DriverError<I2C::Error>> {
-        let mut buf = [0u8; 1];
-        self.i2c.write_read(I2C_ADDR, &[G_MODE_ADDR], &mut buf)?;
-
-        let value = InterruptMode::try_from(buf[0]).map_err(|()| DriverError::InvalidResponse)?;
-        Ok(value)
-    }
-
-    /// Set the current interrupt mode.
-    /// This corresponds to the `G_MODE` register.
-    pub fn set_interrupt_mode(
-        &mut self,
-        mode: InterruptMode,
-    ) -> Result<(), DriverError<I2C::Error>> {
-        Ok(self.i2c.write(I2C_ADDR, &[G_MODE_ADDR, mode as u8])?)
-    }
-
-    /// Read a byte from any register.
-    /// Provided as a catch-all for missing api.
-    pub fn read_register(&mut self, reg: u8) -> Result<u8, DriverError<I2C::Error>> {
-        let mut buf = [0u8; 1];
-        self.i2c.write_read(I2C_ADDR, &[reg], &mut buf)?;
-        Ok(buf[0])
-    }
-
-    /// Write a byte to any register.
-    /// Provided as a catch-all for missing api.
-    ///
-    /// # Safety
-    /// This function allows you to write any value to any register and as such is marked unsafe.
-    pub unsafe fn write_register(
-        &mut self,
-        reg: u8,
-        val: u8,
-    ) -> Result<(), DriverError<I2C::Error>> {
-        Ok(self.i2c.write(I2C_ADDR, &[reg, val])?)
-    }
-
-    /// Safely clean up the device, returning any owned peripherals.
-    pub fn destroy(self) -> I2C {
-        self.i2c
-    }
-}
-
 /// A driver error.
 #[derive(Debug, defmt::Format)]
 pub enum DriverError<I2CError> {
@@ -345,67 +201,14 @@ pub enum DriverError<I2CError> {
     I2cError(I2CError),
     /// The device returned something unexpected.
     InvalidResponse,
+    /// Returned by the async driver if the irq pin wasn't set for the required functionality.
+    IrqPinNotSet,
+    /// Returned when an error occured while waiting for an IRQ.
+    IrqError,
 }
 
 impl<I2CError> From<I2CError> for DriverError<I2CError> {
     fn from(value: I2CError) -> Self {
         Self::I2cError(value)
     }
-}
-
-/// Extract an entire [`TouchPoint`] from registers.
-fn touch_point_from_registers(
-    pn_xh: u8,
-    pn_xl: u8,
-    pn_yh: u8,
-    pn_yl: u8,
-    pn_weight: u8,
-    pn_misc: u8,
-) -> TouchPoint {
-    let x = coord_from_registers(pn_xh, pn_xl);
-    let y = coord_from_registers(pn_yh, pn_yl);
-    let touch_id = touch_id_from_register(pn_yh);
-
-    let touch_type = TouchType::from_register(pn_xh);
-    let area = area_from_register(pn_misc);
-
-    TouchPoint {
-        x,
-        y,
-        weight: pn_weight,
-        area,
-        touch_type,
-        touch_id,
-    }
-}
-
-/// Returns true if the number of touch points is valid.
-///
-/// This will return false if there are no touch points or if the number of touch
-/// points exceeds two.
-fn is_num_touch_points_valid(amount: u8) -> bool {
-    (1..=2).contains(&amount)
-}
-
-/// Extracts the 4 bit touch point amount from a register.
-fn number_touch_points_from_register(value: u8) -> u8 {
-    value & 0x0F
-}
-
-/// Extracts the 4 bit area from a register.
-fn area_from_register(value: u8) -> u8 {
-    value >> 4
-}
-
-/// Extracts the 4 bit touch id from a register.
-fn touch_id_from_register(value: u8) -> u8 {
-    value >> 4
-}
-
-/// Extracts the 12 bit coordinate from the msb and lsb registers.
-fn coord_from_registers(msb: u8, lsb: u8) -> u16 {
-    // last 4 bits are MSB
-    let msb = msb & 0x0F;
-    // Convert to 12 bit represented in u16.
-    ((msb as u16) << 8) | lsb as u16
 }
