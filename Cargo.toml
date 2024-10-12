@@ -8,7 +8,7 @@ authors = ["DogeDark"]
 license-file = "LICENSE"
 repository = "https://github.com/DogeDark/ft6x06-rs"
 readme = "README.md"
-keywords = ["embedded-hal"]
+keywords = ["embedded-hal", "embedded-hal-async"]
 categories = ["embedded", "no-std"]
 
 
