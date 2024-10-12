@@ -178,7 +178,7 @@ impl<I2C: I2c<SevenBitAddress>, P: Wait> FT6x06Async<I2C, P> {
     }
 
     /// Safely clean up the device, returning any owned peripherals.
-    pub fn destroy(self) -> I2C {
-        self.i2c
+    pub fn destroy(self) -> (I2C, Option<P>) {
+        (self.i2c, self.irq_pin)
     }
 }
