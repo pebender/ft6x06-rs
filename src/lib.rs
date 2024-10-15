@@ -41,7 +41,7 @@
 //!
 //! loop {
 //!     let touch_event = dev_async.wait_for_touch(&mut irq_pin).await?;
-//!     defmt::info!("{:?}", touch_event);
+//!     info!("{:?}", touch_event);
 //! }
 //! ```
 
