@@ -8,10 +8,20 @@ authors = ["DogeDark"]
 license-file = "LICENSE"
 repository = "https://github.com/DogeDark/ft6x06-rs"
 readme = "README.md"
-keywords = ["embedded-hal"]
+keywords = ["embedded-hal", "embedded-hal-async"]
 categories = ["embedded", "no-std"]
 
 
 [dependencies]
 defmt = "0.3.8"
-embedded-hal = "1.0.0"
+embedded-hal = { version = "1.0.0", optional = true } 
+embedded-hal-async = { version = "1.0.0", optional = true } 
+
+[features]
+default = ["sync-driver"]
+sync-driver = ["embedded-hal"]
+async-driver = ["embedded-hal-async"]
+
+
+[package.metadata.docs.rs]
+all-features = true
