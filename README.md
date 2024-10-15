@@ -51,7 +51,12 @@ info!("Monitor Rate: {}", monitor_rate);
 // Get the latest touch data. Usually after receiving an interrupt from the device.
 let touch_event = dev.get_touch_event()?;
 
-// In the async driver, you can wait for the next touch event:
-let mut dev_async = FT6x06Async::new(i2c).with_irq_pin(my_periph.GPIO_XX);
-let touch_event = dev_async.wait_for_touch().await?;
+// In the async driver, you can use additionally wait for the next touch event:
+let mut irq_pin = Input::new(my_periph.GPIO_XX, Pull::Up);
+let mut dev_async = FT6x06Async::new(i2c);
+ 
+loop {
+    let touch_event = dev_async.wait_for_touch(&mut irq_pin).await?;
+    defmt::info!("{:?}", touch_event);
+}
 ```

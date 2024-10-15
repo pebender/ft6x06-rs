@@ -15,37 +15,24 @@ use crate::{
 ///
 /// This struct contains the full async interface to the FT6x06 device.
 /// Certain features depend upon the specific FT6x06 chip and firmware version and some data or functionality may be unavailable.
-pub struct FT6x06Async<I2C, P> {
+pub struct FT6x06Async<I2C> {
     i2c: I2C,
-    irq_pin: Option<P>,
 }
 
-impl<I2C: I2c<SevenBitAddress>, P: Wait> FT6x06Async<I2C, P> {
+impl<I2C: I2c<SevenBitAddress>> FT6x06Async<I2C> {
     pub fn new(i2c: I2C) -> Self {
-        Self { i2c, irq_pin: None }
+        Self { i2c }
     }
 
-    /// Set the IRQ pin.
-    ///
-    /// Use before calling [`FT6x06Async::wait_for_touch_event`].
-    pub fn with_irq_pin(mut self, pin: P) -> Self {
-        self.irq_pin = Some(pin);
-        self
-    }
-
-    /// Wait for the next touch event.
-    ///
-    /// If the IRQ pin isn't set, this will return [`DriverError::IrqPinNotSet`].
-    /// Set the IRQ pin with [`FT6x06Async::with_irq_pin`].
-    pub async fn wait_for_touch(&mut self) -> Result<Option<TouchEvent>, DriverError<I2C::Error>> {
-        let Some(ref mut irq_pin) = self.irq_pin else {
-            return Err(DriverError::IrqPinNotSet);
-        };
-
-        irq_pin
-            .wait_for_falling_edge()
+    /// Wait for the next touch event interrupt from the specified irq pin.
+    pub async fn wait_for_touch<P: Wait>(
+        &mut self,
+        irq: &mut P,
+    ) -> Result<Option<TouchEvent>, DriverError<I2C::Error>> {
+        irq.wait_for_falling_edge()
             .await
             .map_err(|_| DriverError::IrqError)?;
+
         self.get_touch_event().await
     }
 
@@ -178,7 +165,7 @@ impl<I2C: I2c<SevenBitAddress>, P: Wait> FT6x06Async<I2C, P> {
     }
 
     /// Safely clean up the device, returning any owned peripherals.
-    pub fn destroy(self) -> (I2C, Option<P>) {
-        (self.i2c, self.irq_pin)
+    pub fn destroy(self) -> I2C {
+        self.i2c
     }
 }

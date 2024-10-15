@@ -36,8 +36,13 @@
 //! let touch_event = dev.get_touch_event()?;
 //!
 //! // In the async driver, you can wait for the next touch event:
-//! let mut dev_async = FT6x06Async::new(i2c).with_irq_pin(my_periph.GPIO_XX);
-//! let touch_event = dev_async.wait_for_touch().await?;
+//! let mut irq_pin = Input::new(my_periph.GPIO_XX, Pull::Up);
+//! let mut dev_async = FT6x06Async::new(i2c);
+//!
+//! loop {
+//!     let touch_event = dev_async.wait_for_touch(&mut irq_pin).await?;
+//!     defmt::info!("{:?}", touch_event);
+//! }
 //! ```
 
 #![no_std]
@@ -201,8 +206,6 @@ pub enum DriverError<I2CError> {
     I2cError(I2CError),
     /// The device returned something unexpected.
     InvalidResponse,
-    /// Returned by the async driver if the irq pin wasn't set for the required functionality.
-    IrqPinNotSet,
     /// Returned when an error occured while waiting for an IRQ.
     IrqError,
 }
