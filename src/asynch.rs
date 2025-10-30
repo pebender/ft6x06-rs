@@ -151,6 +151,17 @@ impl<I2C: I2c<SevenBitAddress>> FT6x06Async<I2C> {
         Ok(buf[0])
     }
 
+    /// Read multiple bytes from any register. Provided as a catch-all for
+    /// missing api.
+    /// 
+    /// For at least some hardware/firmware compbinations, the register 0xD3 can
+    /// be read to retrieve the Gesture Id, the number of points used to
+    /// determine the gesture and the points used to determine the gesture.
+    pub async fn read_register_multivalue(&mut self, reg: u8, buf: &mut [u8]) -> Result<(), DriverError<I2C::Error>> {
+        self.i2c.write_read(I2C_ADDR, &[reg], buf).await?;
+        Ok(())
+    }
+
     /// Write a byte to any register.
     /// Provided as a catch-all for missing api.
     ///
